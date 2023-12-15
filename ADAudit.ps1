@@ -151,26 +151,37 @@ function Generate-ADReport {
 
 
 # Function to get unique count of members in privileged roles
-	function Get-PrivilegedGroupMembers {
-		$privilegedGroups = @("Enterprise Admins", "Schema Admins", "Domain Admins", "Account Operators", "Server Operators", "Print Operators", "DHCP Administrators", "DNSAdmins")
-		$groupMembers = @{}
+function Get-PrivilegedGroupMembers {
+    param (
+        [string]$DomainController
+    )
 
-		foreach ($group in $privilegedGroups) {
-			$groupObject = Get-ADGroup -Filter "Name -eq '$group'" -Server $DomainController -ErrorAction SilentlyContinue
-			if ($groupObject) {
-				$groupMembers[$group] = (Get-ADGroupMember -Identity $group -Server $DomainController).Count
-			}
-		}
+    $privilegedGroups = @("Enterprise Admins", "Schema Admins", "Domain Admins", "Account Operators", "Server Operators", "Print Operators", "DHCP Administrators", "DNSAdmins")
+    $groupMembersList = @()
 
-		return $groupMembers
-	}
+    foreach ($group in $privilegedGroups) {
+        $groupObject = Get-ADGroup -Filter "Name -eq '$group'" -Server $DomainController -ErrorAction SilentlyContinue
+        if ($groupObject) {
+            $members = Get-ADGroupMember -Identity $group -Server $DomainController | Select-Object -ExpandProperty Name
+            
+            foreach ($member in $members) {
+                $groupMembersList += [PSCustomObject]@{
+                    GroupName = $group
+                    MemberName = $member
+                }
+            }
+        }
+    }
+
+    return $groupMembersList
+}
 	
 	# Define all the sections of the report
 	$reportSections = @(
 		@{Title="Stale Accounts"; Function="Get-StaleAccounts"},
 		@{Title="Accounts with Aged Passwords"; Function="Get-AgedPasswords"},
 		@{Title="Privileged Group Members"; Function="Get-PrivilegedGroupMembers"},
-		@{Title="Empty Groups"; Function="Get-EmptyGroups"},
+		#@{Title="Empty Groups"; Function="Get-EmptyGroups"},
 		@{Title="Inactive User Accounts"; Function="Get-InactiveUserAccounts"},
 		@{Title="Inactive Computer Accounts"; Function="Get-InactiveComputerAccounts"},
 		@{Title="Orphaned SID History"; Function="Get-OrphanedSIDHistory"},
@@ -182,43 +193,27 @@ function Generate-ADReport {
 	$totalSections = $reportSections.Length
 	$currentSectionIndex = 0
 
-    # Loop through each report section and gather data
-    foreach ($section in $reportSections) {
-        # Update the progress bar
-        $currentSectionIndex++
-        $statusMessage = "Processing $($section.Title)"
-        Write-Progress -Activity "Generating Report" -Status $statusMessage -PercentComplete (($currentSectionIndex / $totalSections) * 100)
+# Loop through each report section and gather data
+foreach ($section in $reportSections) {
+    # Update the progress bar
+    $currentSectionIndex++
+    $statusMessage = "Processing $($section.Title)"
+    Write-Progress -Activity "Generating Report" -Status $statusMessage -PercentComplete (($currentSectionIndex / $totalSections) * 100)
 
-        # Display current section status
-        Write-Host "Processing section: $($section.Title)" -ForegroundColor Yellow
+    # Display current section status
+    Write-Host "Processing section: $($section.Title)" -ForegroundColor Yellow
 
-        # Invoke the function for each section and gather data
-        $functionName = $section.Function
-        $sectionData = & $functionName -DomainController $DomainController
+    # Invoke the function for each section and gather data
+    $functionName = $section.Function
+    $sectionData = & $functionName -DomainController $DomainController
 
-        # Display a summary of the current section's results
-        Write-Host "Processed $($sectionData.Count) items in $($section.Title)." -ForegroundColor Green
-
-        # Store the data
-        $section.Data = $sectionData
-    }
-
-  # Combine and export all data into a single CSV file
-  $csvData = foreach ($section in $reportSections) {
-	  foreach ($item in $section.Data) {
-		  [PSCustomObject]@{
-			  Section = $section.Title
-			  Name = $item.Name
-			  Details = $item | Select-Object -ExcludeProperty Name | ConvertTo-Json -Compress
-		  }
-	  }
-  }
-
-  $csvData | Export-Csv -Path "AD_Audit_Report.csv" -NoTypeInformation
-  Write-Host "Exported to CSV: AD_Audit_Report.csv" -ForegroundColor Yellow
-
-  Write-Host "`nActive Directory Audit Report Generation Complete!" -ForegroundColor Green
+    # Export the data to a CSV file named after the section
+    $csvFileName = "$($section.Title.Replace(' ', '_'))_AD_Audit_Report.csv"
+    $sectionData | Export-Csv -Path $csvFileName -NoTypeInformation
+    Write-Host "Exported $($section.Title) to CSV: $csvFileName" -ForegroundColor Green
 }
 
+Write-Host "`nActive Directory Audit Report Generation Complete!" -ForegroundColor Green
+}
 # Call the main function to generate the report
 # Example: Generate-ADReport -DomainController "dc1.example.com"
